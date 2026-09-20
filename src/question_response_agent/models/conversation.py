@@ -11,7 +11,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
     #外键关联，指向users表的id字段，级联删除，当对应的用户被删除时，该用户的所有会话也会被自动删除
     id:Mapped[int] = mapped_column(Integer,primary_key=True,autoincrement=True)
-    user_id:Mapped[str] = mapped_column(Integer,ForeignKey("users.id",ondelete="CASCADE"),nullable=False,index=True)
+    user_id:Mapped[int] = mapped_column(Integer,ForeignKey("users.id",ondelete="CASCADE"),nullable=False,index=True)
     title:Mapped[str] = mapped_column(String(128),default="新会话",nullable=False)
 
     summary:Mapped[str|None] = mapped_column(Text,nullable=True)
@@ -28,6 +28,6 @@ class Conversation(Base):
     """
 
     #对话与消息表之间建立一对多关系
-    messages:Mapped[list["messages"]] = relationship(
+    messages:Mapped[list["Message"]] = relationship(
         back_populates="conversation",cascade="all,delete-orphan"
     )

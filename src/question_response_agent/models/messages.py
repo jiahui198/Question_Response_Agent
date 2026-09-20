@@ -14,10 +14,13 @@ class Message(Base):
     conversation_id:Mapped[int] = mapped_column(Integer,ForeignKey("conversations.id",ondelete="CASCADE"),nullable=False,index=True)
     role:Mapped[str] = mapped_column(String(16),nullable=False)
 
+    # 消息内容（用户的问题 / AI 的回答），可能很长，用 Text
+    content:Mapped[str] = mapped_column(Text,nullable=False)
+
     token_count:Mapped[int|None] = mapped_column(Integer,nullable=True)
 
     created_at:Mapped[datetime] = mapped_column(DateTime,default=datetime.utcnow,nullable=False)
 
     #对话与消息表的双向导航
-    conversation:Mapped["conversation"] = relationship(back_populates="messages")
+    conversation:Mapped["Conversation"] = relationship(back_populates="messages")
     

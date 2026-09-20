@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     redis_password:str = ""
     redis_db:int = 0
 
+    #----JWT----
+    jwt_secrete:str = "please_change_me" #秘钥
+    jwt_algorithm:str = "HS256"          #算法
+    jwt_expire_minutes:int = 1440        #有效期
+
     #------LLM-------
     dashscope_api_key:str = ""
     llm_model:str = "qwen-plus"
