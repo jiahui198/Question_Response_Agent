@@ -21,6 +21,7 @@ class UserOut(BaseModel):
     """
     id:int
     username:str = Field(min_length=3,max_length=64,description="用户名称，长度为3-64字符串")
+    email:EmailStr
     is_active:bool
     created_at:datetime
 
