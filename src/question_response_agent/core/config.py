@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes:int = 1440        #有效期
 
     #------LLM-------
-    dashscope_api_key:str = ""
+    dashscope_api_key:str = "https://ws-4hx60x137eq0hvca.cn-beijing.maas.aliyuncs.com/api/v1"
     llm_model:str = "qwen-plus"
 
 @lru_cache

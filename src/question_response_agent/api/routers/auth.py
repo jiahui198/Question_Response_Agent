@@ -67,6 +67,7 @@ async def login(
     return TokenResponse(access_token=token)
 
 
+#定义登录之后受保护的接口，只有登录之后才能够访问
 @router.get("/me", response_model=UserOut)
 async def read_me(current_user: User = Depends(get_current_user)):
     """测试登录态的接口：必须带有效 token 才能访问，返回当前用户信息。"""
