@@ -83,6 +83,24 @@ def build_chat_prompt(
     return tpl.partial(role=user_role).format_messages(user_input=user_input)
 
 
+def get_prompt_template(user_role:str,scene:str)->ChatPromptTemplate:
+    """
+    按身份+场景取原始模版，供LCEL链使用
+    :param user_role: 用户角色
+    :param scene:  场景
+    :return: 原始模版
+    """
+    return _TEMPLATES.get((user_role,scene),_DEFAULT_TEMPLATE)
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     #------LLM-------
     dashscope_api_key:str = "https://ws-4hx60x137eq0hvca.cn-beijing.maas.aliyuncs.com/api/v1"
     llm_model:str = "qwen-plus"
+    llm_timeout_seconds:int = 30  #单次llm调用最长等待时间，超时将返回504
 
 @lru_cache
 def get_settings()->Settings:
