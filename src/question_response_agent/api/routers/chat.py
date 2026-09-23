@@ -18,6 +18,8 @@ ConversationNotFoundError,
 LLMInvocationError
 )
 
+from fastapi.responses import StreamingResponse
+
 router = APIRouter(prefix="/chat",tags=["对话"])
 
 @router.post("",response_model=ChatResponse)
@@ -56,7 +58,25 @@ async def chat(
             detail=f"模型服务异常{e}"
         )
 
+@router.post("/stream")
+async def chat_stream(
+        req:ChatRequest,
+        db:AsyncSession = Depends(get_db),
+        current_user:User = Depends(get_current_user)
+):
+    try:
+        conv = await chat_service.prepare_stream(db,current_user,req)
+    except ConversationNotFoundError as e:
+        raise HTTPException(status_code=404,detail=str(e))
 
+    return StreamingResponse(
+        chat_service.stream_reply(db,conv.id,req.message,req.scene),
+        media_type="text/event-stream",
+        headers={
+            "cache-Control":"no-cache",
+            "X-Accel-Buffering":"no"
+        }
+    )
 
 
 

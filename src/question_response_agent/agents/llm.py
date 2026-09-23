@@ -24,4 +24,5 @@ def get_llm() -> ChatTongyi:
         model=settings.llm_model,               # 从 .env 读：qwen-plus
         dashscope_api_key=settings.dashscope_api_key,
         temperature=0.7,                         # 对话场景偏发散
+        streaming=True,                          # 开启流式，供 astream() 逐 token 推送
     )
