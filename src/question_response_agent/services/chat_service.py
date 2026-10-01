@@ -15,6 +15,12 @@ get_prompt_template,
 ROLE_STUDENT
 )
 from question_response_agent.agents.llm import get_llm
+from langchain_core.messages import HumanMessage,AIMessage
+from sqlalchemy import func
+
+
+MEMORY_WINDOW=6 #设置窗口大小：最近6条消息
+SUMMARY_THRESHOLD = 12  #设置消息条数阈值
 
 
 #----业务异常----
@@ -26,6 +32,7 @@ class ConversationNotFoundError(Exception):
     """
     会话不存在或不属于当前用户
     """
+
 
 async def get_or_create_conversation(
         db:AsyncSession,
@@ -54,6 +61,7 @@ async def get_or_create_conversation(
         raise ConversationNotFoundError("会话不存在")
     return conv
 
+
 async def save_message(
         db:AsyncSession,
         conversation_id:int,
@@ -75,9 +83,124 @@ async def save_message(
 
     return msg
 
+
+"""
+本部分用于设计agent的会话压缩，将长上下文借助llm进行压缩
+"""
+async def summarize_history(
+        messages:list[Message],
+        existing_summary:str | None
+)->str:
+    """
+    把消息内容列表压缩成摘要
+
+    :param messages: 消息列表
+    :param existing_summary:已有对话摘要
+    :return:新摘要
+    """
+    content_parts = [f"{m.role}:{m.content}" for m in messages]
+    if existing_summary:
+        prompt_text = (
+            f"已有对话摘要：\n{existing_summary}\n\n"
+            f"新增对话摘要\n"+"\n".join(content_parts)+"\n\n"
+            "请更新摘要，保留关键信息（用户姓名、偏好、事实、重要结论），控制在200字以内"
+        )
+    else:
+        prompt_text = (
+            "请把以下对话压缩成摘要，保留关键信息"
+            "（用户姓名、偏好、事实、重要结论），控制在200字以内：\n\n"
+            + "\n".join(content_parts)
+        )
+    llm = get_llm()
+    resp = await llm.ainvoke(prompt_text)
+    return resp.content
+
+async def maybe_summary(
+        db:AsyncSession,
+        conv:Conversation,
+        window:int = MEMORY_WINDOW
+)->str | None:
+    """
+    检测是否触发摘要：
+    消息总数超过阈值时，把更早的消息压缩成摘要写回;
+    没到阈值就返回先有摘要（可能为None）。
+
+    :param db:数据库连接session
+    :param conv:会话
+    :param window:窗口大小
+    :return:摘要/None
+    """
+    count_stmt = select(func.count()).select_from(Message).where(Message.conversation_id==conv.id)
+    total = (await db.execute(count_stmt)).scalar_one()
+    if total <=window:
+        return conv.summary
+
+    #取窗口之外的更早的消息
+    stmt = (
+        select(Message)
+        .where(Message.conversation_id == conv.id)
+        #排序按照时间从最早到最近的时间排序，由小到大
+        .order_by(Message.created_at.asc(),Message.id.asc())
+        .limit(total-window)
+    )
+    old_msgs = list((await db.execute(stmt)).scalars().all())
+
+    new_summary = await summarize_history(messages=old_msgs,existing_summary=conv.summary)
+    conv.summary=new_summary
+    await db.commit()
+    return new_summary
+
+"""
+本部分用于设计agent的记忆功能，将对话的历史消息与摘要进行拼接
+"""
+async def build_messages_with_memory(
+        db:AsyncSession,
+        conversation_id:int,
+        user_input:str,
+        window:int = MEMORY_WINDOW
+)->dict:
+    """
+    拉取最近window条历史消息.同时检测是否需要摘要机制
+
+    :param db: 数据库连接session
+    :param conversation_id:会话id
+    :param user_input:用户输入
+    :param window:窗口大小
+    :return:{"history": [...], "user_input": ..., "role": ...}
+    """
+    stmt = (
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        #按照时间降序排列，由最近的到最早的
+        .order_by(Message.created_at.desc(),Message.id.desc())
+        .limit(window)
+        .offset(1)      #跳过最近一条的用户消息（已随消息模版发送）
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    rows = list(reversed(rows))
+
+    history=[]
+    for m in rows:
+        if m.role =="user":
+            history.append(HumanMessage(content=m.content))
+        elif m.role =="assistant":
+            history.append(AIMessage(content=m.content))
+    #检测是否需要摘要，把结果注入模板变量
+    conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
+    conv =(await db.execute(conv_stmt)).scalar_one()
+    summary = await maybe_summary(db,conv,window)
+    summary_text = f"【历史摘要】{summary}" if summary else ""
+
+    return {
+        "history":history,
+        "user_input":user_input,
+        "role":ROLE_STUDENT,
+        "summary":summary_text
+    }
+
 async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
     """
-    主流程函数：会话就绪->存用户消息->LCEL链生成回复->存AI消息
+    主流程函数：会话就绪->存用户消息->获取或者创建summary->LCEL链生成回复->存AI消息
 
     :param db: 数据库连接
     :param user: 用户信息
@@ -93,12 +216,13 @@ async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
     #messages表中存储用户消息
     await save_message(db,conv.id,role="user",content=req.message)
 
+    input_dict = await build_messages_with_memory(db,conv.id,req.message)
     #LCEL链：动态提示词|LLM
     chain = get_prompt_template(ROLE_STUDENT,req.scene) | get_llm()
 
     try:
         ai_msg = await chain.ainvoke(
-            {"user_input":req.message,"role":ROLE_STUDENT}
+            input_dict
         )
     except Exception as e :
         raise LLMInvocationError(f"llm调用失败{e}") from e
@@ -112,6 +236,7 @@ async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
         reply = ai_msg.content,
         created_at = assistant_msg.created_at
     )
+
 
 """
 以下模块为定义实现客户端的流式输出
@@ -152,9 +277,10 @@ async def stream_reply(
     :return: 异步生成器
     """
     collected:list[str]=[]
+    input_dict = await build_messages_with_memory(db,conversation_id,message)
     chain = get_prompt_template(ROLE_STUDENT,scene) | get_llm()
     try:
-        async for chunk in chain.astream({"user_input":message,"role":ROLE_STUDENT}):
+        async for chunk in chain.astream(input_dict):
             text = chunk.content
             if not text:
                 continue

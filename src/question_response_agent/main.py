@@ -4,7 +4,7 @@ FastAPI 应用入口。
     uv run uvicorn question_response_agent
 """
 from fastapi import FastAPI
-from question_response_agent.api.routers import health,auth,chat
+from question_response_agent.api.routers import health,auth,chat,conversations
 
 app = FastAPI(
     title="question-response-agent",
@@ -16,6 +16,7 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(chat.router)
+app.include_router(conversations.router)
 
 @app.get("/")
 async def root():
