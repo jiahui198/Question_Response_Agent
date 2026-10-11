@@ -13,7 +13,7 @@ class UserMemory(Base):
 
     user_id:Mapped[int] = mapped_column(Integer,ForeignKey("users.id",ondelete="CASCADE"),nullable=False,index=True)
 
-    #记忆分类：preference（偏好）/fact（事实）/pofile（画像）
+    #记忆分类：preference（偏好）/fact（事实）/goal（目标）
     memory_type:Mapped[str] = mapped_column(String(32),default="fact",nullable=False)
 
     #记忆内容

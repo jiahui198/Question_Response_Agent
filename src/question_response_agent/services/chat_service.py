@@ -1,14 +1,14 @@
 """
 对话业务逻辑：组装LCEL链（动态提示词 |LLM）调用 --> 消息落库
 """
-import json
+import json,re
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from question_response_agent.models.user import User
 from question_response_agent.models.conversation import Conversation
 from question_response_agent.models.messages import Message
+from question_response_agent.models.user_memory import UserMemory
 from question_response_agent.schemas.chat import ChatRequest, ChatResponse
 from question_response_agent.agents.prompts.system_prompts import (
 get_prompt_template,
@@ -16,7 +16,7 @@ ROLE_STUDENT
 )
 from question_response_agent.agents.llm import get_llm
 from langchain_core.messages import HumanMessage,AIMessage
-from sqlalchemy import func
+from sqlalchemy import func,select
 
 
 MEMORY_WINDOW=6 #设置窗口大小：最近6条消息
@@ -85,7 +85,101 @@ async def save_message(
 
 
 """
-本部分用于设计agent的会话压缩，将长上下文借助llm进行压缩
+本部分设计agent的长期记忆：跨会话的用户偏好/事实，新开一个会话也能记得
+"""
+async def extract_memories(
+        db:AsyncSession,
+        user_id:int,
+        messages:list[Message]
+)->int:
+    """
+    用llm从消息列表中抽取事实，写入user_memories表，返回新增记忆数
+
+    :param db:数据库连接session
+    :param user_id:用户ID
+    :param messages:待抽取的消息列表
+    :return:新增记忆数
+    """
+    if not messages:
+        return 0
+    dialog = "\n".join(f"{m.role}:{m.content}" for m in messages)
+
+    prompt_text = (
+        "请从以下对话中抽取用户的长期事实信息"
+        "(如姓名、职业、技能、偏好、目标、重要约束等)\n"
+        "以JSON数组形式返回,每项包含 memory_type 和 content 两个字段。\n"
+        "memory_type 取值: profile(身份) / preference(偏好) / fact(事实) / goal(目标)\n"
+        "无事实就返回空数组 []\n"
+        "对话内容：\n" + dialog
+    )
+
+    llm = get_llm()
+    resp = await llm.ainvoke(prompt_text)
+    text = resp.content.strip()
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if not m:
+        return 0
+    try:
+        items = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return 0
+
+    #写入user_memories表
+    added = 0
+    for it in items:
+        if not it.get("content"):
+            continue
+        mem = UserMemory(
+            user_id=user_id,
+            memory_type=it.get("memory_type","fact"),
+            content=it['content'],
+            importance=5
+        )
+        db.add(mem)
+        added+=1
+    if added:
+        await db.commit()
+    return added
+
+async def load_user_memories(
+        db:AsyncSession,
+        user_id:int,
+        limit:int = 10
+)->str:
+    """
+    加载用户长期记忆，拼成文本注入prompt
+
+    :param db: 数据库连接session
+    :param user_id: 用户id
+    :param limit:抽取记忆条数
+    :return:拼接好的长期记忆文本
+    """
+    stmt = (
+        select(UserMemory)
+        .where(UserMemory.user_id == user_id)
+        #按照创建时间降序排序
+        .order_by(UserMemory.created_at.desc())
+        .limit(limit)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    if not rows:
+        return ""
+
+    lines = []
+    type_map = {
+        "profile":"用户身份",
+        "preference":"用户偏好",
+        "fact":"用户事实",
+        "goal":"用户目标"
+    }
+    for m in rows:
+        label = type_map.get(m.memory_type,m.memory_type)
+        lines.append(f"{label}:{m.content}")
+    return "【跨会话记忆】\n" + "\n".join(lines)+"\n"
+
+"""
+本部分用于设计agent的会话压缩，将长上下文借助llm进行压缩，生成摘要
 """
 async def summarize_history(
         messages:list[Message],
@@ -132,7 +226,7 @@ async def maybe_summary(
     """
     count_stmt = select(func.count()).select_from(Message).where(Message.conversation_id==conv.id)
     total = (await db.execute(count_stmt)).scalar_one()
-    if total <=window:
+    if total <= SUMMARY_THRESHOLD:
         return conv.summary
 
     #取窗口之外的更早的消息
@@ -150,9 +244,7 @@ async def maybe_summary(
     await db.commit()
     return new_summary
 
-"""
-本部分用于设计agent的记忆功能，将对话的历史消息与摘要进行拼接
-"""
+
 async def build_messages_with_memory(
         db:AsyncSession,
         conversation_id:int,
@@ -160,7 +252,8 @@ async def build_messages_with_memory(
         window:int = MEMORY_WINDOW
 )->dict:
     """
-    拉取最近window条历史消息.同时检测是否需要摘要机制
+    拉取最近window条历史消息.同时检测是否需要摘要机制，将历史消息与摘要进行拼接;
+    新增：新增用户的长期记忆，主要含有用户的偏好、身份、目标，都添加到提示词中
 
     :param db: 数据库连接session
     :param conversation_id:会话id
@@ -189,13 +282,15 @@ async def build_messages_with_memory(
     conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
     conv =(await db.execute(conv_stmt)).scalar_one()
     summary = await maybe_summary(db,conv,window)
+    memories_text = await load_user_memories(db,conv.user_id)
     summary_text = f"【历史摘要】{summary}" if summary else ""
 
     return {
         "history":history,
         "user_input":user_input,
         "role":ROLE_STUDENT,
-        "summary":summary_text
+        "summary":summary_text,
+        "memories":memories_text
     }
 
 async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
@@ -229,6 +324,17 @@ async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
 
     #存ai回复
     assistant_msg = await save_message(db,conv.id,role="assistant",content=ai_msg.content)
+
+    #新增，抽取消息历史中的事实，存入user_memories中
+    recent_stmt = (
+        select(Message)
+        .where(Message.conversation_id==conv.id)
+        .order_by(Message.created_at.desc(),Message.id.desc())
+        .limit(6)
+    )
+    recent = list(reversed(list((await db.execute(recent_stmt)).scalars().all())))
+    #将历史消息抽取存入user_memories表中
+    await extract_memories(db, user.id, recent)
 
     return ChatResponse(
         conversation_id=conv.id,
