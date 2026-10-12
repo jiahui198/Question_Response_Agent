@@ -78,13 +78,7 @@ def build_agent_graph(user_role,scene:str,ctx:dict | None = None):
     llm_with_tools = llm.bind_tools(tools=tools)
 
     async def agent_node(state:MessagesState)->dict:
-        system = (
-            "你是一个AI学习助手，你可以使用工具来回答用户问题。"
-            "如果问题不需要工具，直接回答。"
-            "如果工具返回了错误信息，向用户道歉并基于你自己的知识尽力回答。"
-        )
-        msgs = [("system",system)]+state["messages"]
-        ai_msg = await llm_with_tools.ainvoke(msgs)
+        ai_msg = await llm_with_tools.ainvoke(state["messages"])
         return {"messages":[ai_msg]}
 
     def should_continue(state:MessagesState)->str:
