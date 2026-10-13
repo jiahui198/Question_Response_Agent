@@ -1,0 +1,62 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: qra-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}        # 从你 .env 里读
+      MYSQL_DATABASE: question_response_agent
+    command:
+      - --character-set-server=utf8mb4              # 服务端默认字符集
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M              # 2G 内存调优
+      - --performance-schema=OFF                    # 省 ~100MB 内存
+      - --max-connections=50
+    volumes:
+      - mysql_data:/var/lib/mysql                   # 数据持久化
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10                                   # 首次初始化慢，给足 100s
+    networks: [qra-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: qra-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [qra-net]
+
+  app:
+    build: .                                        # 镜像不存在时自动构建
+    image: qra-app:0.1.0
+    container_name: qra-app
+    restart: unless-stopped
+    env_file: .env                                  # 注入全部配置
+    environment:
+      MYSQL_HOST: mysql                             # 覆盖 .env 里的 127.0.0.1
+      REDIS_HOST: redis                             # 服务名即域名
+      TZ: Asia/Shanghai                             # 容器默认 UTC，对齐东八区
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy                  # 等 MySQL 真正能连
+      redis:
+        condition: service_healthy
+    networks: [qra-net]
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  qra-net:

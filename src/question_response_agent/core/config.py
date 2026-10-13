@@ -64,9 +64,10 @@ class Settings(BaseSettings):
     llm_timeout_seconds:int = 30  #单次llm调用最长等待时间，超时将返回504
 
     #模型路由配置：(role,scene)->model_name
+    #注意：模型名必须是当前 DashScope key 已开通的模型，否则报 404 Model not exist
     llm_default_model:str = "qwen-plus"
     llm_model_routes:dict ={
-        ("student","chat"):"qwen-turbo",
+        ("student","chat"):"qwen-plus",
         ("student","qa"):"qwen-plus",
         ("professional","chat"):"qwen-plus"
     }

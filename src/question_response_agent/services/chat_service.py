@@ -390,6 +390,7 @@ async def stream_reply(
     :return: 异步生成器
     """
     collected:list[str]=[]
+    yield f"data: {json.dumps({'type': 'meta', 'conversation_id': conv.id}, ensure_ascii=False)}\n\n"
     messages = await build_agent_messages(db,conv,message,scene)
     graph = build_agent_graph(ROLE_STUDENT,scene,ctx={"db":db,"user_id":user_id})
     try:

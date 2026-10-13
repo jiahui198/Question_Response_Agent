@@ -7,6 +7,7 @@
 """
 from typing import Annotated
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from langchain_core.tools import tool,InjectedToolArg
 import ast,operator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +20,7 @@ async def get_current_time()->str:
     查询当前的日期和时间。当想知道现在几点、今天日期时使用
     :return: 日期和时间
     """
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @tool
