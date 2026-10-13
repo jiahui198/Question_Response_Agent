@@ -59,7 +59,7 @@ def _make_tool_node(tools:list,ctx:dict):
             #将模型生成的参数信息和程序的参数注入结合起来
             out = await _invoke_with_retry(tool,{**call["args"],**inject})
             results.append(ToolMessage(content=out,tool_call_id=call["id"]))
-            return {"messages":results}
+        return {"messages":results}
     return tool_node
 
 

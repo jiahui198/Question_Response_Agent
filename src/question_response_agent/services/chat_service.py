@@ -15,8 +15,12 @@ get_prompt_template,
 ROLE_STUDENT
 )
 from question_response_agent.agents.llm import get_llm
-from langchain_core.messages import HumanMessage,AIMessage
+from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,AIMessageChunk
+from langgraph.errors import GraphRecursionError
+from question_response_agent.agents.graph import build_agent_graph
+from question_response_agent.agents.prompts.system_prompts import build_system_messages
 from sqlalchemy import func,select
+
 
 
 MEMORY_WINDOW=6 #设置窗口大小：最近6条消息
@@ -178,6 +182,7 @@ async def load_user_memories(
         lines.append(f"{label}:{m.content}")
     return "【跨会话记忆】\n" + "\n".join(lines)+"\n"
 
+
 """
 本部分用于设计agent的会话压缩，将长上下文借助llm进行压缩，生成摘要
 """
@@ -245,57 +250,52 @@ async def maybe_summary(
     return new_summary
 
 
-async def build_messages_with_memory(
+async def build_agent_messages(
         db:AsyncSession,
-        conversation_id:int,
-        user_input:str,
+        conv:Conversation,
+        user_input :str,
+        scene:str,
         window:int = MEMORY_WINDOW
-)->dict:
+)->list:
     """
-    拉取最近window条历史消息.同时检测是否需要摘要机制，将历史消息与摘要进行拼接;
-    新增：新增用户的长期记忆，主要含有用户的偏好、身份、目标，都添加到提示词中
+    组装agent输入消息列表：System（身份+长期记忆+会话摘要）+最近窗口历史+本次用户输入
 
     :param db: 数据库连接session
-    :param conversation_id:会话id
-    :param user_input:用户输入
-    :param window:窗口大小
-    :return:{"history": [...], "user_input": ..., "role": ...}
+    :param conv: 本次会话
+    :param user_input: 用户输入
+    :param scene: 场景
+    :param window: 总结摘要窗口大小
+    :return:系统提示词
     """
-    stmt = (
+    stmt =  (
         select(Message)
-        .where(Message.conversation_id == conversation_id)
-        #按照时间降序排列，由最近的到最早的
+        .where(Message.conversation_id == conv.id)
         .order_by(Message.created_at.desc(),Message.id.desc())
         .limit(window)
-        .offset(1)      #跳过最近一条的用户消息（已随消息模版发送）
+        .offset(1)
     )
-    rows = (await db.execute(stmt)).scalars().all()
-    rows = list(reversed(rows))
+    rows = list(reversed((await db.execute(stmt)).scalars().all()))
 
     history=[]
     for m in rows:
-        if m.role =="user":
+        if m.role == "user":
             history.append(HumanMessage(content=m.content))
         elif m.role =="assistant":
             history.append(AIMessage(content=m.content))
-    #检测是否需要摘要，把结果注入模板变量
-    conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
-    conv =(await db.execute(conv_stmt)).scalar_one()
+
     summary = await maybe_summary(db,conv,window)
+    summary_text = f"【会话摘要】{summary}\n" if summary else ""
     memories_text = await load_user_memories(db,conv.user_id)
-    summary_text = f"【历史摘要】{summary}" if summary else ""
+    system = build_system_messages(ROLE_STUDENT,scene,memories_text,summary_text)
+    return [system,*history,HumanMessage(content=user_input)]
 
-    return {
-        "history":history,
-        "user_input":user_input,
-        "role":ROLE_STUDENT,
-        "summary":summary_text,
-        "memories":memories_text
-    }
 
+"""
+以下模块主要实现基本的对话，不含有流式输出
+"""
 async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
     """
-    主流程函数：会话就绪->存用户消息->获取或者创建summary->LCEL链生成回复->存AI消息
+    主流程函数：会话就绪->存用户消息->组装agent消息->Langgraph生成回复->存AI消息->抽取长期记忆
 
     :param db: 数据库连接
     :param user: 用户信息
@@ -311,16 +311,21 @@ async def handle_chat(db:AsyncSession,user:User,req:ChatRequest)->ChatResponse:
     #messages表中存储用户消息
     await save_message(db,conv.id,role="user",content=req.message)
 
-    input_dict = await build_messages_with_memory(db,conv.id,req.message)
-    #LCEL链：动态提示词|LLM
-    chain = get_prompt_template(ROLE_STUDENT,req.scene) | get_llm()
+    messages = await build_agent_messages(db,conv,req.message,req.scene)
+    #生成graph图
+    graph = build_agent_graph(ROLE_STUDENT,req.scene,ctx={"db":db,"user_id":user.id})
 
     try:
-        ai_msg = await chain.ainvoke(
-            input_dict
+        result = await graph.ainvoke(
+            {"messages":messages},
+            config={"recursion_limit":10}  #设置agent-tool最大循环次数为10次
         )
+    except GraphRecursionError as e:
+        raise LLMInvocationError("回复生成过于复杂,请稍后重试") from e
     except Exception as e :
-        raise LLMInvocationError(f"llm调用失败{e}") from e
+        raise LLMInvocationError(f"agent调用失败{e}") from e
+
+    ai_msg = result["messages"][-1]
 
     #存ai回复
     assistant_msg = await save_message(db,conv.id,role="assistant",content=ai_msg.content)
@@ -365,41 +370,44 @@ async def prepare_stream(db:AsyncSession,user:User,req:ChatRequest)->Conversatio
     await save_message(db,conv.id,role="user",content=req.message)
     return conv
 
+
 async def stream_reply(
         db:AsyncSession,
-        conversation_id:int,
+        conv:Conversation,
         message:str,
-        scene:str
+        scene:str,
+        user_id:int
 )->AsyncGenerator:
     """
     大模型的相应流式出处到前端阶段：
-        让模型流式返回数据给后端:async for chunk in model.astream,
+        让模型流式返回数据给后端:async for chunk in graph.astream,
         后端为前端流式推送数据yield
 
     :param db: 数据库连接
-    :param conversation_id: 会话id
+    :param conv: 会话
     :param message: 会话消息内容
     :param scene: 场景
     :return: 异步生成器
     """
     collected:list[str]=[]
-    input_dict = await build_messages_with_memory(db,conversation_id,message)
-    chain = get_prompt_template(ROLE_STUDENT,scene) | get_llm()
+    messages = await build_agent_messages(db,conv,message,scene)
+    graph = build_agent_graph(ROLE_STUDENT,scene,ctx={"db":db,"user_id":user_id})
     try:
-        async for chunk in chain.astream(input_dict):
+        async for chunk,_meta in graph.astream(
+                {"messages":messages},
+                config={"recursion_limit":10},
+                stream_mode="messages"
+        ):
+            if not isinstance(chunk,AIMessageChunk):
+                continue
             text = chunk.content
             if not text:
                 continue
             collected.append(text)
-            #向前端推送流式消息
-            yield f"data:{json.dumps({'type':'delta','content':text},ensure_ascii=False)}\n\n"
-    except Exception as e :
+            yield f"data: {json.dumps({ 'type' : 'delta' , 'content' :text} ,ensure_ascii=False)}\n\n"
+    except Exception:
         yield f"data: {json.dumps({'type': 'error', 'message': '模型服务异常，请稍后重试'}, ensure_ascii=False)}\n\n"
         return
-
-    # 落库
-    assistant_msg = await save_message(db,conversation_id,role="assistant",content="".join(collected))
-    yield f"data:{json.dumps({'type':'done','message_id':assistant_msg.id},ensure_ascii=False)}\n\n"
-
-
+    assistant_msg = await save_message(db, conv.id, role="assistant", content="".join(collected))
+    yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id}, ensure_ascii=False)}\n\n"
 

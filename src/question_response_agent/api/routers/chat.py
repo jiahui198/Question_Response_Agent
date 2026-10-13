@@ -73,7 +73,7 @@ async def chat_stream(
         raise HTTPException(status_code=404,detail=str(e))
 
     return StreamingResponse(
-        chat_service.stream_reply(db,conv.id,req.message,req.scene),
+        chat_service.stream_reply(db,conv,req.message,req.scene,current_user.id),
         media_type="text/event-stream",
         headers={
             "cache-Control":"no-cache",

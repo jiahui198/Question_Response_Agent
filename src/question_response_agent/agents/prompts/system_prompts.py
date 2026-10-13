@@ -8,6 +8,8 @@ SystemMessagePromptTemplate,
 HumanMessagePromptTemplate,
 MessagesPlaceholder,    #可变插槽模版
 )
+from langchain_core.messages import SystemMessage
+
 
 #----常亮----
 SCENE_CHAT = "chat"
@@ -86,9 +88,29 @@ def get_prompt_template(user_role:str,scene:str)->ChatPromptTemplate:
     return _TEMPLATES.get((user_role,scene),_DEFAULT_TEMPLATE)
 
 
+def build_system_messages(
+        user_role:str,
+        scene:str,
+        memories_text:str = "",
+        summary_text:str =""
+)->SystemMessage:
+    """
+    复用模板的system部分，生成agent用的SystemMessage(身份+记忆+摘要)
 
-
-
+    :param user_role:用户身份
+    :param scene:场景
+    :param memories_text:记忆文本
+    :param summary_text:总结文本
+    :return:生成记忆提示词
+    """
+    tpl = get_prompt_template(user_role,scene)
+    msgs = tpl.format_messages(
+        role = user_role,
+        memories = memories_text,
+        summary = summary_text,
+        user_input = ""
+    )
+    return msgs[0]
 
 
 
