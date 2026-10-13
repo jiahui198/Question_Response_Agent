@@ -14,15 +14,34 @@ from question_response_agent.core.config import settings
 
 
 @lru_cache
-def get_llm() -> ChatTongyi:
+def _get_llm(model_name:str) -> ChatTongyi:
     """
     返回一个 ChatTongyi 实例（单例，进程内复用）。
 
     :return: ChatTongyi 实例，可调用 .invoke / .ainvoke
     """
     return ChatTongyi(
-        model=settings.llm_model,               # 从 .env 读：qwen-plus
+        model=model_name,
         dashscope_api_key=settings.dashscope_api_key,
         temperature=0.7,                         # 对话场景偏发散
         streaming=True,                          # 开启流式，供 astream() 逐 token 推送
     )
+
+
+#新增路由模型代码，根据角色+场景动态选择模型
+def get_llm(user_role:str | None = None,scene:str | None = None)->ChatTongyi:
+    """
+    按照场景+角色路由到对应的模型：选择合适的模型
+    :param user_role:用户角色
+    :param scene:场景
+    :return:模型实例
+    """
+    if user_role is None or scene is None:
+        return _get_llm(settings.llm_default_model)
+    model = settings.llm_model_routes.get((user_role,scene),settings.llm_default_model)
+    return _get_llm(model_name=model)
+
+
+
+
+

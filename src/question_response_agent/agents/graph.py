@@ -73,7 +73,7 @@ def build_agent_graph(user_role,scene:str,ctx:dict | None = None):
     """
     ctx = ctx or {}
     tools = load_tools(user_role,scene)
-    llm = get_llm()
+    llm = get_llm(user_role,scene)      #graph图根据场景自动选择模型
     #模型绑定工具，让模型知道可用哪些工具
     llm_with_tools = llm.bind_tools(tools=tools)
 

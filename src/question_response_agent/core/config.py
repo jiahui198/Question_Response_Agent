@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     llm_model:str = "qwen-plus"
     llm_timeout_seconds:int = 30  #单次llm调用最长等待时间，超时将返回504
 
+    #模型路由配置：(role,scene)->model_name
+    llm_default_model:str = "qwen-plus"
+    llm_model_routes:dict ={
+        ("student","chat"):"qwen-turbo",
+        ("student","qa"):"qwen-plus",
+        ("professional","chat"):"qwen-plus"
+    }
+
 @lru_cache
 def get_settings()->Settings:
     """
