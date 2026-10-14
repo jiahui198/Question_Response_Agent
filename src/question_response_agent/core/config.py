@@ -54,15 +54,13 @@ class Settings(BaseSettings):
     redis_db:int = 0
 
     #----JWT----
-    jwt_secrete:str = "please_change_me" #秘钥
+    jwt_secret:str = "please_change_me" #秘钥
     jwt_algorithm:str = "HS256"          #算法
     jwt_expire_minutes:int = 1440        #有效期
 
     #------LLM-------
-    dashscope_api_key:str = "https://ws-4hx60x137eq0hvca.cn-beijing.maas.aliyuncs.com/api/v1"
-    llm_model:str = "qwen-plus"
     llm_timeout_seconds:int = 30  #单次llm调用最长等待时间，超时将返回504
-
+    dashscope_api_key:str = "sk-ws-H.PHPEIYX.nLaJ.MEYCIQDPDnWFyPf1vEAGK3wLnEAXpEERs4_ZaIbf9mD4Dn9T8gIhAJK4vkmrplK4jHhGXKqKdsvb9rxsOqcJTwgaIiBSLRL0"
     #模型路由配置：(role,scene)->model_name
     #注意：模型名必须是当前 DashScope key 已开通的模型，否则报 404 Model not exist
     llm_default_model:str = "qwen-plus"

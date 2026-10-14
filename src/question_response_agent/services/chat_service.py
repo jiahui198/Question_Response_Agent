@@ -411,5 +411,18 @@ async def stream_reply(
         yield f"data: {json.dumps({'type': 'error', 'message': '模型服务异常，请稍后重试'}, ensure_ascii=False)}\n\n"
         return
     assistant_msg = await save_message(db, conv.id, role="assistant", content="".join(collected))
+
+    #查询历史对话消息，并将llm检索到的特征记忆放在memories表中
+    try:
+        recent_stmt = (
+            select(Message)
+            .where(Message.conversation_id==conv.id)
+            .order_by(Message.created_at.desc(),Message.id.desc())
+            .limit(6)
+        )
+        recent = list(reversed(list((await db.execute(recent_stmt)).scalars().all())))
+        await extract_memories(db,user_id,recent)
+    except Exception:
+        pass
     yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id}, ensure_ascii=False)}\n\n"
 
