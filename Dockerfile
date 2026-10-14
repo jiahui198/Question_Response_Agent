@@ -16,10 +16,10 @@ COPY --from=builder /app/.venv /app/.venv
 
 COPY src/ ./src/
 
-COPY static/ ./static/
+COPY front/ ./front/
 
-ENV PATH="/app/.venv/bin:$PATH " \
-    PYTHONPATH="/app/src"\
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
     PYTHONUNBUFFERED=1
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser

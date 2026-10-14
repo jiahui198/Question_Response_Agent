@@ -145,6 +145,7 @@ async def extract_memories(
         await db.commit()
     return added
 
+
 async def load_user_memories(
         db:AsyncSession,
         user_id:int,

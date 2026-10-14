@@ -34,7 +34,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
-app.mount("/",StaticFiles(directory= "static" , html= True),name="static")
+app.mount("/",StaticFiles(directory= "front" , html= True),name="front")
 
 @app.get("/")
 async def root():
