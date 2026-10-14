@@ -1,271 +1,106 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>智能问答 Agent</title>
-<style>
-  :root {
-    --primary: #4f6ef7;
-    --primary-dark: #3d56d6;
-    --bg: #f3f5fa;
-    --bubble-ai: #ffffff;
-    --text: #1f2329;
-    --text-sub: #8a8f99;
-    --radius: 16px;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { height:100%; }
-  body {
-    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    background: var(--bg); color: var(--text);
-    height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
-  }
-
-  /* ---------- 登录页 ---------- */
-  #login {
-    flex:1; display:flex; align-items:center; justify-content:center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 24px;
-  }
-  .login-card {
-    width: 100%; max-width: 360px; background: #fff; border-radius: 20px;
-    padding: 36px 28px; box-shadow: 0 20px 60px rgba(0,0,0,.25);
-  }
-  .login-card .logo {
-    width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 16px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    display:flex; align-items:center; justify-content:center; font-size: 28px;
-  }
-  .login-card h2 { text-align:center; font-size: 20px; margin-bottom: 4px; }
-  .login-card p { text-align:center; color: var(--text-sub); font-size: 13px; margin-bottom: 24px; }
-  .login-card input {
-    width: 100%; padding: 13px 14px; margin-bottom: 14px; font-size: 16px; /* 16px 防止 iOS 聚焦自动放大 */
-    border: 1.5px solid #e4e7ed; border-radius: 12px; outline: none; transition: border-color .2s;
-  }
-  .login-card input:focus { border-color: var(--primary); }
-  .login-card button {
-    width: 100%; padding: 13px; font-size: 16px; font-weight: 600; color: #fff;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    border: none; border-radius: 12px; cursor: pointer; transition: opacity .2s;
-  }
-  .login-card button:active { opacity: .85; }
-  .login-err { color:#e64545; font-size:13px; text-align:center; margin-top:10px; min-height:18px; }
-
-  /* ---------- 聊天页 ---------- */
-  #chat { display:none; flex:1; flex-direction:column; height: 100dvh; max-width: 860px; width:100%; margin: 0 auto; }
-  header {
-    display:flex; align-items:center; gap: 10px; padding: 12px 16px;
-    background: #fff; border-bottom: 1px solid #eceef3; flex-shrink: 0;
-  }
-  header .avatar {
-    width: 36px; height: 36px; border-radius: 12px; flex-shrink: 0;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    display:flex; align-items:center; justify-content:center; font-size: 18px;
-  }
-  header .title { font-size: 15px; font-weight: 600; }
-  header .status { font-size: 12px; color: var(--text-sub); display:flex; align-items:center; gap:5px; }
-  header .dot { width: 7px; height: 7px; border-radius: 50%; background: #2ecc71; }
-  header .logout { margin-left:auto; font-size:13px; color:var(--text-sub); background:none; border:none; cursor:pointer; }
-
-  #msgs { flex:1; overflow-y:auto; padding: 18px 14px; scroll-behavior: smooth; }
-  .row { display:flex; margin-bottom: 16px; gap: 8px; }
-  .row.user { justify-content: flex-end; }
-  .row .mini-avatar {
-    width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
-    display:flex; align-items:center; justify-content:center; font-size: 15px;
-  }
-  .row.assistant .mini-avatar { background: linear-gradient(135deg,#667eea,#764ba2); }
-  .row.user .mini-avatar { background: #dfe4f5; order: 2; }
-  .msg {
-    max-width: 78%; padding: 11px 15px; border-radius: var(--radius);
-    line-height: 1.7; font-size: 15px; word-break: break-word; white-space: pre-wrap;
-    box-shadow: 0 1px 3px rgba(30,40,80,.06);
-  }
-  .row.assistant .msg { background: var(--bubble-ai); border-top-left-radius: 4px; }
-  .row.user .msg {
-    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    color: #fff; border-top-right-radius: 4px;
-  }
-  .msg.error { color:#e64545; background:#fff1f0; }
-
-  /* 打字指示器：三个跳动的点 */
-  .typing { display:inline-flex; gap:4px; padding: 4px 2px; }
-  .typing i { width:7px; height:7px; border-radius:50%; background:#b6bdd0; animation: blink 1.2s infinite; }
-  .typing i:nth-child(2) { animation-delay: .2s; }
-  .typing i:nth-child(3) { animation-delay: .4s; }
-  @keyframes blink { 0%,80%,100% { opacity:.3; transform: translateY(0);} 40% { opacity:1; transform: translateY(-3px);} }
-
-  /* ---------- 底部输入栏 ---------- */
-  #bar {
-    display:flex; gap: 10px; padding: 12px 14px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom)); /* iPhone 底部安全区 */
-    background:#fff; border-top:1px solid #eceef3; flex-shrink:0;
-  }
-  #bar input {
-    flex:1; padding: 12px 16px; font-size: 16px;
-    border: 1.5px solid #e4e7ed; border-radius: 24px; outline:none; transition: border-color .2s;
-  }
-  #bar input:focus { border-color: var(--primary); }
-  #send {
-    width: 46px; height: 46px; border-radius: 50%; flex-shrink:0;
-    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;
-    transition: transform .15s, opacity .2s;
-  }
-  #send:active { transform: scale(.92); }
-  #send:disabled { opacity:.5; }
-  #send svg { width: 20px; height: 20px; fill: #fff; }
-
-  /* ---------- 手机端适配 ---------- */
-  @media (max-width: 640px) {
-    #chat { max-width: 100%; }
-    .msg { max-width: 85%; font-size: 15px; }
-    #msgs { padding: 14px 10px; }
-    header { padding: 10px 12px; }
-  }
-</style>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<div id="login">
-  <div class="login-card">
-    <div class="logo">🤖</div>
-    <h2>智能问答 Agent</h2>
-    <p>LangGraph · 工具调用 · 长短记忆 · SSE 流式</p>
-    <input id="email" type="email" placeholder="邮箱" value="docker@test.com">
-    <input id="password" type="password" placeholder="密码" value="test123456">
-    <button onclick="login()">登 录</button>
-    <div class="login-err" id="loginErr"></div>
-  </div>
-</div>
+<!-- ==================== 登录 / 注册 ==================== -->
+<div id="authView" class="auth-view" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">🤖</div>
+    <h1 class="auth-title">智能问答 Agent</h1>
+    <p class="auth-sub">LangGraph · 工具调用 · 长短时记忆 · SSE 流式输出</p>
 
-<div id="chat">
-  <header>
-    <div class="avatar">🤖</div>
-    <div>
-      <div class="title">智能问答助手</div>
-      <div class="status"><span class="dot"></span>在线</div>
+    <div class="auth-tabs">
+      <button id="tabLogin" class="active" onclick="switchTab('login')">登录</button>
+      <button id="tabRegister" onclick="switchTab('register')">注册</button>
     </div>
-    <button class="logout" onclick="logout()">退出</button>
-  </header>
-  <div id="msgs"></div>
-  <div id="bar">
-    <input id="input" placeholder="输入消息..." autocomplete="off"
-           onkeydown="if(event.key==='Enter')send()">
-    <button id="send" onclick="send()" aria-label="发送">
-      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-    </button>
+
+    <div id="loginForm">
+      <input id="loginEmail" type="email" placeholder="邮箱" autocomplete="username">
+      <input id="loginPwd" type="password" placeholder="密码" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn-primary" onclick="doLogin()">登 录</button>
+    </div>
+
+    <div id="registerForm" style="display:none">
+      <input id="regName" placeholder="用户名">
+      <input id="regEmail" type="email" placeholder="邮箱" autocomplete="username">
+      <input id="regPwd" type="password" placeholder="密码（至少6位）" autocomplete="new-password"
+             onkeydown="if(event.key==='Enter')doRegister()">
+      <button class="btn-primary" onclick="doRegister()">注 册</button>
+    </div>
+
+    <div id="authErr" class="auth-err"></div>
   </div>
 </div>
 
-<script>
-let token = '';
-let conversationId = null;
+<!-- ==================== 主界面 ==================== -->
+<div id="appView" class="app-view" style="display:none">
 
-async function login() {
-  const form = new URLSearchParams();
-  form.append('username', document.getElementById('email').value);
-  form.append('password', document.getElementById('password').value);
-  try {
-    const r = await fetch('/auth/login', { method: 'POST', body: form });
-    if (!r.ok) { document.getElementById('loginErr').textContent = '登录失败：账号或密码错误'; return; }
-    token = (await r.json()).access_token;
-    document.getElementById('login').style.display = 'none';
-    document.getElementById('chat').style.display = 'flex';
-    document.getElementById('input').focus();
-  } catch (e) {
-    document.getElementById('loginErr').textContent = '网络异常，请稍后重试';
-  }
-}
+  <!-- 移动端遮罩 -->
+  <div id="mask" class="mask" onclick="closeSidebar()"></div>
 
-function logout() { location.reload(); }
+  <!-- 侧边栏 -->
+  <aside id="sidebar" class="sidebar">
+    <button class="new-chat" onclick="newChat()">
+      <span class="plus">＋</span> 开启新对话
+    </button>
+    <div id="convList" class="conv-list"></div>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar" id="userAvatar">U</div>
+        <div class="user-name" id="userName">用户</div>
+      </div>
+      <button class="icon-btn" title="退出登录" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M16 13v-2H7V8l-5 4 5 4v-3zM20 3h-8v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
+      </button>
+    </div>
+  </aside>
 
-function appendMsg(role, text) {
-  const row = document.createElement('div');
-  row.className = 'row ' + role;
-  const avatar = document.createElement('div');
-  avatar.className = 'mini-avatar';
-  avatar.textContent = role === 'user' ? '🧑' : '🤖';
-  const div = document.createElement('div');
-  div.className = 'msg';
-  div.textContent = text;
-  row.appendChild(avatar);
-  row.appendChild(div);
-  const box = document.getElementById('msgs');
-  box.appendChild(row);
-  box.scrollTop = box.scrollHeight;
-  return div;
-}
+  <!-- 主区域 -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn hamburger" onclick="openSidebar()">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
+      <div class="topbar-title" id="convTitle">新对话</div>
+      <button class="icon-btn" title="切换主题" onclick="toggleTheme()">
+        <svg id="themeIcon" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-5.4-5.4c0-1.81.89-3.42 2.26-4.4A9 9 0 0 0 12 3z"/></svg>
+      </button>
+    </header>
 
-function scrollBottom() {
-  const box = document.getElementById('msgs');
-  box.scrollTop = box.scrollHeight;
-}
+    <div id="msgs" class="msgs">
+      <!-- 欢迎页 -->
+      <div id="welcome" class="welcome">
+        <div class="welcome-logo">🤖</div>
+        <h2>有什么可以帮你的？</h2>
+        <p>支持工具调用、多轮记忆、流式输出</p>
+        <div class="suggest-grid">
+          <div class="suggest-card" onclick="useSuggest('现在几点了？')">🕐 现在几点了？</div>
+          <div class="suggest-card" onclick="useSuggest('帮我算一下 (128+256)*3')">🧮 帮我算一下 (128+256)*3</div>
+          <div class="suggest-card" onclick="useSuggest('介绍一下 LangGraph 是什么')">📚 介绍一下 LangGraph</div>
+          <div class="suggest-card" onclick="useSuggest('给我讲个程序员笑话')">😄 讲个程序员笑话</div>
+        </div>
+      </div>
+    </div>
 
-async function send() {
-  const input = document.getElementById('input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  document.getElementById('send').disabled = true;
-  appendMsg('user', text);
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <button id="sendBtn" class="send-btn" onclick="send()" aria-label="发送">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="input-tip">内容由 AI 生成，仅供参考</div>
+    </div>
+  </main>
+</div>
 
-  // 先放打字指示器，收到第一个 delta 再替换成文字
-  const aiDiv = appendMsg('assistant', '');
-  aiDiv.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-  let firstDelta = true;
-
-  try {
-    const body = { message: text };
-    if (conversationId) body.conversation_id = conversationId;
-
-    const resp = await fetch('/chat/stream', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) {
-      aiDiv.classList.add('error');
-      aiDiv.textContent = '请求失败：HTTP ' + resp.status;
-      return;
-    }
-
-    // fetch + ReadableStream 手动解析 SSE（EventSource 不支持 POST/Header）
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buf = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const raw = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        if (!raw.startsWith('data:')) continue;
-        const evt = JSON.parse(raw.slice(5).trim());
-        if (evt.type === 'meta') {
-          conversationId = evt.conversation_id;
-        } else if (evt.type === 'delta') {
-          if (firstDelta) { aiDiv.textContent = ''; firstDelta = false; }
-          aiDiv.textContent += evt.content;
-          scrollBottom();
-        } else if (evt.type === 'error') {
-          aiDiv.classList.add('error');
-          aiDiv.textContent = '[出错了] ' + evt.message;
-        }
-      }
-    }
-    if (firstDelta) aiDiv.textContent = '（无响应内容）';
-  } catch (e) {
-    aiDiv.classList.add('error');
-    aiDiv.textContent = '[网络异常] 请检查连接后重试';
-  } finally {
-    document.getElementById('send').disabled = false;
-    document.getElementById('input').focus();
-  }
-}
-</script>
+<script src="/app.js"></script>
 </body>
 </html>
